@@ -103,7 +103,7 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		[
 			'generate',
 			'@nx/react:storybook-configuration',
-			'ui',
+			'libs-ui',
 			'--uiFramework=@storybook/react-webpack5',
 			'--generateCypressSpecs=false',
 			'--no-interactive',
