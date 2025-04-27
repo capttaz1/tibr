@@ -1,65 +1,86 @@
-// src/commands/init.ts
-
 import { execa } from 'execa';
 import * as fs from 'fs';
-import inquirer from 'inquirer';
-import * as path from 'path';
+import yargs from 'yargs';
 
-export async function initHandler(name: string, preset: 'react-monorepo' | 'ts', pm: 'npm' | 'yarn' | 'pnpm') {
-	const workspaceDir = path.resolve(process.cwd(), name);
+export const command = 'init <name>';
+export const desc = 'Bootstrap a new Nx workspace + apps/libs';
 
-	// 1) if the folder exists, prompt & remove it
-	if (fs.existsSync(workspaceDir)) {
-		const { confirm } = await inquirer.prompt([
-			{
-				type: 'confirm',
-				name: 'confirm',
-				message: `Directory "${name}" already exists. Delete it?`,
-				default: false,
-			},
-		]);
-		if (!confirm) {
-			console.log('Aborting.');
-			process.exit(1);
-		}
-		console.log('🗑 Removing existing workspace…');
-		fs.rmSync(workspaceDir, { recursive: true, force: true });
+interface InitOptions {
+	preset: string;
+	pm: string;
+}
+
+export const builder = (yargs: yargs.Argv<any>) =>
+	yargs
+		.positional('name', { type: 'string', describe: 'The name of your workspace' })
+		.option('preset', {
+			alias: 'p',
+			type: 'string',
+			default: 'react-monorepo',
+			describe: 'create-nx-workspace preset',
+		})
+		.option('pm', {
+			alias: 'm',
+			type: 'string',
+			default: 'npm',
+			describe: 'package manager to use',
+		});
+
+export async function handler(argv: yargs.Arguments<InitOptions>) {
+	const name = argv.name as string;
+	const preset = argv.preset;
+	const pm = argv.pm;
+
+	// 1. Remove existing folder if present
+	if (fs.existsSync(name)) {
+		fs.rmSync(name, { recursive: true, force: true });
+		console.log(`🗑 Removed existing directory: ${name}`);
 	}
 
-	// 2) bootstrap the Nx workspace (no prompts, no Nx Cloud)
-	console.log(`🚀 Bootstrapping "${name}" with preset="${preset}", packageManager="${pm}"…`);
+	// 2. Bootstrap new Nx workspace
 	await execa(
 		'npx',
 		[
 			'create-nx-workspace@latest',
 			name,
-			`--preset=${preset}`,
-			`--packageManager=${pm}`,
+			'--preset',
+			preset,
+			'--packageManager',
+			pm,
 			'--interactive=false',
-			'--ci=skip', // ← changed here from --nxCloud=false
+			'--nxCloud=false',
 		],
 		{ stdio: 'inherit' }
 	);
 
-	process.chdir(workspaceDir);
+	process.chdir(name);
 
-	// 3) install & initialize Nx plugins
+	// 3. Install & initialize Nx plugins
 	console.log('🔧 Installing & initializing Nx plugins…');
-	await execa(pm, ['install', '-D', '@nx/express', '@nx/react', '@nx/storybook', '@nx/cypress'], {
-		stdio: 'inherit',
-	});
-	await execa('nx', ['add', '@nx/storybook', '--interactive=false'], { stdio: 'inherit' });
-	await execa('nx', ['generate', '@nx/express:init'], { stdio: 'inherit' });
-	await execa('nx', ['generate', '@nx/react:init'], { stdio: 'inherit' });
-	await execa('nx', ['generate', '@nx/storybook:init'], { stdio: 'inherit' });
-	await execa('nx', ['generate', '@nx/cypress:init'], { stdio: 'inherit' });
+	await execa(
+		pm,
+		[
+			'install',
+			'@nx/express@latest',
+			'@nx/react@latest',
+			'@nx/storybook@latest',
+			'@nx/cypress@latest',
+			'--save-dev',
+		],
+		{ stdio: 'inherit' }
+	);
 
-	// 4) generate React + Express apps
+	await execa('nx', ['g', '@nx/express:init', '--no-interactive'], { stdio: 'inherit' });
+	await execa('nx', ['g', '@nx/react:init', '--no-interactive'], { stdio: 'inherit' });
+	await execa('nx', ['g', '@nx/storybook:init', '--no-interactive'], { stdio: 'inherit' });
+	await execa('nx', ['g', '@nx/cypress:init', '--no-interactive'], { stdio: 'inherit' });
+
+	// 4. Generate applications and libs
 	console.log('🔨 Generating React client app…');
 	await execa(
 		'nx',
 		[
-			'generate',
+			'g',
 			'@nx/react:application',
 			'client',
 			'--directory=apps',
@@ -74,16 +95,15 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 	);
 
 	console.log('🔨 Generating Express API app…');
-	await execa('nx', ['generate', '@nx/express:application', 'api', '--directory=apps', '--no-interactive'], {
+	await execa('nx', ['g', '@nx/express:application', 'api', '--directory=apps', '--no-interactive'], {
 		stdio: 'inherit',
 	});
 
-	// 5) Generate the UI lib *as* "ui" under libs/
 	console.log('🔨 Generating UI library…');
 	await execa(
 		'nx',
 		[
-			'generate',
+			'g',
 			'@nx/react:library',
 			'ui',
 			'--directory=libs',
@@ -91,37 +111,29 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 			'--linter=eslint',
 			'--unitTestRunner=jest',
 			'--bundler=none',
+			'--no-interactive',
 		],
 		{ stdio: 'inherit' }
 	);
 
-	// 6) Figure out the project name & root
-	const { readFileSync } = require('fs');
-	const workspace = JSON.parse(readFileSync('workspace.json', 'utf-8'));
-	// Nx will register it as "@<your-org>/ui"
-	const possibleNames = [
-		Object.keys(workspace.projects).find((p) => workspace.projects[p].root === 'libs/ui'),
-		Object.keys(workspace.projects).find((p) => workspace.projects[p].root === 'ui'),
-	];
-
-	// 7) Wire up Storybook
+	// 5. Configure Storybook for the UI lib
 	console.log('🔨 Configuring Storybook for UI library…');
-	// new approach: use the Nx project name
-	// in a react-monorepo preset, library 'ui' ends up as @<workspace>/ui
 	const uiProject = `@${name}/ui`;
 	await execa(
 		'nx',
 		[
-			'generate',
+			'g',
 			'@nx/react:storybook-configuration',
-			uiProject,
-			'--project',
 			uiProject,
 			'--uiFramework=@storybook/react-webpack5',
 			'--generateCypressSpecs=false',
+			'--no-interactive',
 		],
 		{ stdio: 'inherit' }
 	);
 
-	console.log('🎉 All set! Your monorepo is ready.');
+	console.log('🎉 Initialization complete!');
 }
+
+// alias the handler so index.ts can import initHandler
+export const initHandler = handler;
