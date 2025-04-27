@@ -80,7 +80,9 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		stdio: 'inherit',
 	});
 
-	// 5) generate the UI lib under libs/ui
+	//
+	// 5) Generate the UI lib *as* "ui" so it lands at libs/ui
+	//
 	console.log('🔨 Generating UI library…');
 	await execa(
 		'nx',
@@ -88,7 +90,6 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 			'generate',
 			'@nx/react:library',
 			'ui',
-			'--directory=libs',
 			'--style=css',
 			'--unitTestRunner=jest',
 			'--linter=eslint',
@@ -98,24 +99,26 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		{ stdio: 'inherit' }
 	);
 
-	// 6) find its true project name
+	//
+	// 6) Figure out its actual project name by looking for root === 'libs/ui'
+	//
 	console.log('🔨 Configuring Storybook for UI library…');
-	const wsJsonPath = join(process.cwd(), 'workspace.json');
-	let uiProjectName: string | undefined;
 
-	if (existsSync(wsJsonPath)) {
-		// Nx < v16: workspace.json holds all the project defs
-		const ws = JSON.parse(readFileSync(wsJsonPath, 'utf-8'));
+	// first try the old workspace.json (Nx <16)
+	let uiProjectName: string | undefined;
+	const wsPath = join(process.cwd(), 'workspace.json');
+	if (existsSync(wsPath)) {
+		const ws = JSON.parse(readFileSync(wsPath, 'utf-8'));
 		uiProjectName = Object.entries(ws.projects).find(([, cfg]: any) => cfg.root === 'libs/ui')?.[0];
 	}
 
+	// fallback for Nx >=16 (per-project project.json)
 	if (!uiProjectName) {
-		// Nx v16+: per-project project.json, so fall back to `nx show` calls
-		const { stdout: projectsJson } = await execa('nx', ['show', 'projects', '--json']);
-		const allProjects: string[] = JSON.parse(projectsJson);
+		const { stdout: allProjectsJson } = await execa('nx', ['show', 'projects', '--json']);
+		const allProjects: string[] = JSON.parse(allProjectsJson);
 		for (const name of allProjects) {
-			const { stdout: projCfgJson } = await execa('nx', ['show', 'project', name, '--json']);
-			const proj = JSON.parse(projCfgJson);
+			const { stdout: projJson } = await execa('nx', ['show', 'project', name, '--json']);
+			const proj = JSON.parse(projJson);
 			if (proj.root === 'libs/ui') {
 				uiProjectName = name;
 				break;
@@ -128,13 +131,15 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		process.exit(1);
 	}
 
-	// 7) finally, configure Storybook against that project
+	//
+	// 7) Finally wire up Storybook to that project
+	//
 	await execa(
 		'nx',
 		[
 			'generate',
 			'@nx/react:storybook-configuration',
-			uiProjectName!,
+			uiProjectName,
 			'--uiFramework=@storybook/react-webpack5',
 			'--generateCypressSpecs=false',
 			'--no-interactive',
