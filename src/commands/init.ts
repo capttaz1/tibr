@@ -2,8 +2,10 @@
 
 import { execa } from 'execa';
 import * as fs from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import inquirer from 'inquirer';
 import * as path from 'path';
+import { join } from 'path';
 
 export async function initHandler(name: string, preset: 'react-monorepo' | 'ts', pm: 'npm' | 'yarn' | 'pnpm') {
 	const workspaceDir = path.resolve(process.cwd(), name);
@@ -78,7 +80,7 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		stdio: 'inherit',
 	});
 
-	// 5) generate UI library
+	// 5) generate the UI library under libs/ui
 	console.log('🔨 Generating UI library…');
 	await execa(
 		'nx',
@@ -96,14 +98,42 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		{ stdio: 'inherit' }
 	);
 
-	// 6) wire up Storybook
+	// 6) wire up Storybook against the actual project name
 	console.log('🔨 Configuring Storybook for UI library…');
+
+	// load workspace.json (Nx < 15) or nx.json (Nx ≥ 15)
+	const wsJsonPath = join(process.cwd(), 'workspace.json');
+	const nxJsonPath = join(process.cwd(), 'nx.json');
+	let projects: Record<string, any> = {};
+
+	if (existsSync(wsJsonPath)) {
+		const ws = JSON.parse(readFileSync(wsJsonPath, 'utf-8'));
+		projects = ws.projects;
+	} else if (existsSync(nxJsonPath)) {
+		const nx = JSON.parse(readFileSync(nxJsonPath, 'utf-8'));
+		projects = nx.projects;
+	} else {
+		console.error('❌ Could not locate workspace.json or nx.json');
+		process.exit(1);
+	}
+
+	// find the entry whose root is "libs/ui"
+	const entry = Object.entries(projects).find(([_, cfg]) => cfg.root === 'libs/ui');
+
+	if (!entry) {
+		console.error('❌ Unable to find a project with root "libs/ui"');
+		process.exit(1);
+	}
+
+	const [uiProjectName] = entry;
+
+	// now generate Storybook against that actual name
 	await execa(
 		'nx',
 		[
 			'generate',
 			'@nx/react:storybook-configuration',
-			'libs-ui',
+			uiProjectName,
 			'--uiFramework=@storybook/react-webpack5',
 			'--generateCypressSpecs=false',
 			'--no-interactive',
