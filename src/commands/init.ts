@@ -86,12 +86,11 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 			'generate',
 			'@nx/react:library',
 			'ui',
-			'--directory=libs', // ← force it into libs/ui
+			'--directory=libs',
 			'--style=css',
-			'--unitTestRunner=jest',
 			'--linter=eslint',
+			'--unitTestRunner=jest',
 			'--bundler=none',
-			'--no-interactive',
 		],
 		{ stdio: 'inherit' }
 	);
@@ -104,23 +103,22 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		Object.keys(workspace.projects).find((p) => workspace.projects[p].root === 'libs/ui'),
 		Object.keys(workspace.projects).find((p) => workspace.projects[p].root === 'ui'),
 	];
-	const uiProject = possibleNames.find(Boolean);
-	if (!uiProject) {
-		console.error('❌ Could not locate the UI project in libs/ui or ui');
-		process.exit(1);
-	}
 
 	// 7) Wire up Storybook
 	console.log('🔨 Configuring Storybook for UI library…');
+	// new approach: use the Nx project name
+	// in a react-monorepo preset, library 'ui' ends up as @<workspace>/ui
+	const uiProject = `@${name}/ui`;
 	await execa(
 		'nx',
 		[
 			'generate',
 			'@nx/react:storybook-configuration',
 			uiProject,
+			'--project',
+			uiProject,
 			'--uiFramework=@storybook/react-webpack5',
 			'--generateCypressSpecs=false',
-			'--no-interactive',
 		],
 		{ stdio: 'inherit' }
 	);
