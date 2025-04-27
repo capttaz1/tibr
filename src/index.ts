@@ -2,11 +2,11 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { builder, command, desc, handler as initHandler, InitOptions } from './commands/init';
+import { builder, command, desc, handler as initHandler } from './commands/init';
 
 async function main() {
 	await yargs(hideBin(process.argv))
-		.command<InitOptions>({
+		.command({
 			command,
 			describe: desc,
 			builder,
