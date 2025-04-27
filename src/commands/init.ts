@@ -5,9 +5,6 @@ import * as fs from 'fs';
 import inquirer from 'inquirer';
 import * as path from 'path';
 
-/**
- * Bootstrap a new Nx workspace + standard apps/libs
- */
 export async function initHandler(name: string, preset: 'react-monorepo' | 'ts', pm: 'npm' | 'yarn' | 'pnpm') {
 	const workspaceDir = path.resolve(process.cwd(), name);
 
@@ -39,12 +36,11 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 			`--preset=${preset}`,
 			`--packageManager=${pm}`,
 			'--interactive=false',
-			'--nxCloud=false',
+			'--ci=skip', // ← changed here from --nxCloud=false
 		],
 		{ stdio: 'inherit' }
 	);
 
-	// change into new workspace
 	process.chdir(workspaceDir);
 
 	// 3) install & initialize Nx plugins
@@ -58,7 +54,7 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 	await execa('nx', ['generate', '@nx/storybook:init'], { stdio: 'inherit' });
 	await execa('nx', ['generate', '@nx/cypress:init'], { stdio: 'inherit' });
 
-	// 4) generate our React & Express apps
+	// 4) generate React + Express apps
 	console.log('🔨 Generating React client app…');
 	await execa(
 		'nx',
@@ -82,7 +78,7 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		stdio: 'inherit',
 	});
 
-	// 5) generate our UI library under libs/ui
+	// 5) generate UI library
 	console.log('🔨 Generating UI library…');
 	await execa(
 		'nx',
@@ -100,7 +96,7 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		{ stdio: 'inherit' }
 	);
 
-	// 6) configure Storybook for the “ui” project
+	// 6) wire up Storybook
 	console.log('🔨 Configuring Storybook for UI library…');
 	await execa(
 		'nx',
