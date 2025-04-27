@@ -80,7 +80,7 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		stdio: 'inherit',
 	});
 
-	// 5) generate the UI library under libs/ui
+	// 5) generate the UI lib under libs/ui
 	console.log('🔨 Generating UI library…');
 	await execa(
 		'nx',
@@ -98,42 +98,43 @@ export async function initHandler(name: string, preset: 'react-monorepo' | 'ts',
 		{ stdio: 'inherit' }
 	);
 
-	// 6) wire up Storybook against the actual project name
+	// 6) find its true project name
 	console.log('🔨 Configuring Storybook for UI library…');
-
-	// load workspace.json (Nx < 15) or nx.json (Nx ≥ 15)
 	const wsJsonPath = join(process.cwd(), 'workspace.json');
-	const nxJsonPath = join(process.cwd(), 'nx.json');
-	let projects: Record<string, any> = {};
+	let uiProjectName: string | undefined;
 
 	if (existsSync(wsJsonPath)) {
+		// Nx < v16: workspace.json holds all the project defs
 		const ws = JSON.parse(readFileSync(wsJsonPath, 'utf-8'));
-		projects = ws.projects;
-	} else if (existsSync(nxJsonPath)) {
-		const nx = JSON.parse(readFileSync(nxJsonPath, 'utf-8'));
-		projects = nx.projects;
-	} else {
-		console.error('❌ Could not locate workspace.json or nx.json');
+		uiProjectName = Object.entries(ws.projects).find(([, cfg]: any) => cfg.root === 'libs/ui')?.[0];
+	}
+
+	if (!uiProjectName) {
+		// Nx v16+: per-project project.json, so fall back to `nx show` calls
+		const { stdout: projectsJson } = await execa('nx', ['show', 'projects', '--json']);
+		const allProjects: string[] = JSON.parse(projectsJson);
+		for (const name of allProjects) {
+			const { stdout: projCfgJson } = await execa('nx', ['show', 'project', name, '--json']);
+			const proj = JSON.parse(projCfgJson);
+			if (proj.root === 'libs/ui') {
+				uiProjectName = name;
+				break;
+			}
+		}
+	}
+
+	if (!uiProjectName) {
+		console.error('❌ Could not locate the UI library project at libs/ui');
 		process.exit(1);
 	}
 
-	// find the entry whose root is "libs/ui"
-	const entry = Object.entries(projects).find(([_, cfg]) => cfg.root === 'libs/ui');
-
-	if (!entry) {
-		console.error('❌ Unable to find a project with root "libs/ui"');
-		process.exit(1);
-	}
-
-	const [uiProjectName] = entry;
-
-	// now generate Storybook against that actual name
+	// 7) finally, configure Storybook against that project
 	await execa(
 		'nx',
 		[
 			'generate',
 			'@nx/react:storybook-configuration',
-			uiProjectName,
+			uiProjectName!,
 			'--uiFramework=@storybook/react-webpack5',
 			'--generateCypressSpecs=false',
 			'--no-interactive',
