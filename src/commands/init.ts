@@ -39,15 +39,10 @@ export async function handler(args: InitOptions) {
 	const { name, preset, pm } = args;
 	const workspaceDir = path.resolve(process.cwd(), name);
 
-	// 1) if the folder exists, prompt & remove it
+	// 1) Remove existing folder if present
 	if (fs.existsSync(workspaceDir)) {
 		const { confirm } = await inquirer.prompt([
-			{
-				type: 'confirm',
-				name: 'confirm',
-				message: `Directory "${name}" already exists. Delete it?`,
-				default: false,
-			},
+			{ type: 'confirm', name: 'confirm', message: `Directory "${name}" exists. Delete?`, default: false },
 		]);
 		if (!confirm) {
 			console.log('Aborting.');
@@ -57,35 +52,22 @@ export async function handler(args: InitOptions) {
 		fs.rmSync(workspaceDir, { recursive: true, force: true });
 	}
 
-	// 2) bootstrap the Nx workspace
-	console.log(`Bootstrapping "${name}" with preset="${preset}", packageManager="${pm}"…`);
+	// 2) Bootstrap Nx workspace
+	console.log(`Bootstrapping "${name}" with preset="${preset}", pm="${pm}"…`);
 	await execa(
 		'npx',
 		['create-nx-workspace@latest', name, `--preset=${preset}`, `--packageManager=${pm}`, '--interactive=false'],
 		{ stdio: 'inherit' }
 	);
 
-	// 3) cd into new workspace
 	process.chdir(workspaceDir);
 
-	// 4) install necessary plugins and dependencies
-	console.log('Installing Nx plugins and Storybook dependencies…');
-	await execa(
-		'npm',
-		[
-			'install',
-			'--save-dev',
-			'@nx/react',
-			'@nx/storybook',
-			'@nrwl/express',
-			'@storybook/react',
-			'@storybook/addon-essentials',
-		],
-		{ stdio: 'inherit' }
-	);
+	// 3) Install essential plugins
+	console.log('Installing Nx plugins…');
+	await execa('npm', ['install', '--save-dev', '@nx/react', '@nx/storybook', '@nrwl/express'], { stdio: 'inherit' });
 
-	// 5) generate React UI library with Storybook
-	console.log('Generating "ui-components" React library…');
+	// 4) Generate UI library (buildable & publishable)
+	console.log('Generating "ui-components" library…');
 	await execa(
 		'npx',
 		[
@@ -93,7 +75,6 @@ export async function handler(args: InitOptions) {
 			'g',
 			'@nx/react:library',
 			'ui-components',
-			'--directory=libs',
 			'--style=css',
 			'--buildable',
 			'--publishable',
@@ -102,62 +83,48 @@ export async function handler(args: InitOptions) {
 		],
 		{ stdio: 'inherit' }
 	);
-	console.log('Configuring Storybook for "ui-components"…');
+
+	// 5) Configure Storybook for ui-components
+	console.log('Configuring Storybook…');
 	await execa(
 		'npx',
-		[
-			'nx',
-			'g',
-			'@nx/react:storybook-configuration',
-			'libs-ui-components',
-			'--generateStories=true',
-			'--no-interactive',
-		],
+		['nx', 'g', '@nx/react:storybook-configuration', 'ui-components', '--generateStories=true', '--no-interactive'],
 		{ stdio: 'inherit' }
 	);
 
-	// 6) generate the Express "business-api" application skeleton
-	console.log('Generating Express "business-api" application skeleton…');
+	// 6) Scaffold Express business-api skeleton
+	console.log('Generating Express "business-api"…');
 	await execa(
 		'npx',
 		['nx', 'g', '@nrwl/express:application', 'business-api', '--directory=api', '--no-interactive'],
 		{ stdio: 'inherit' }
 	);
 
-	// 7) write placeholder main.ts for dynamic content integration
-	const mainTsPath = path.join(workspaceDir, 'apps', 'api', 'business-api', 'src', 'main.ts');
-	const mainTsContent = `import express from 'express';
-
-// TODO: Integrate AI- or canonical-driven dynamic content based on client/project
-
-const app = express();
-const port = process.env.PORT ?? 3333;
-
-// parse JSON bodies
+	// 7) Write placeholder main.ts
+	const apiPath = path.join(workspaceDir, 'apps', 'api', 'business-api', 'src', 'main.ts');
+	const mainTs = `import express from 'express';
+// TODO: integrate dynamic AI/canonical content per client
+const app = express(); const port = process.env.PORT ?? 3333;
 app.use(express.json());
-
-app.listen(port, () => {
-  console.log('Business API listening on http://localhost:' + port);
-});
+app.listen(port, () => console.log('Business API listening on http://localhost:' + port));
 `;
-	fs.writeFileSync(mainTsPath, mainTsContent);
+	fs.writeFileSync(apiPath, mainTs);
 
-	// 8) write Dockerfile
-	const dockerfilePath = path.join(workspaceDir, 'apps', 'api', 'business-api', 'Dockerfile');
-	const dockerfileContent = `FROM node:18-alpine
+	// 8) Write Dockerfile
+	const dfPath = path.join(workspaceDir, 'apps', 'api', 'business-api', 'Dockerfile');
+	const df = `FROM node:18-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY . .
 RUN npm run build
 EXPOSE 3333
-CMD ["node", "dist/main.js"]
+CMD ["node","dist/main.js"]
 `;
-	fs.writeFileSync(dockerfilePath, dockerfileContent);
+	fs.writeFileSync(dfPath, df);
 
-	// 9) write docker-compose.yaml
-	const dcPath = path.join(workspaceDir, 'docker-compose.yaml');
-	const dcContent = `version: '3.8'
+	// 9) Write docker-compose.yaml
+	const dc = `version: '3.8'
 services:
   postgres:
     image: postgres:15
@@ -193,7 +160,7 @@ services:
 volumes:
   postgres-data:
 `;
-	fs.writeFileSync(dcPath, dcContent);
+	fs.writeFileSync(path.join(workspaceDir, 'docker-compose.yaml'), dc);
 
-	console.log('✅ Done! Your workspace (massxr) is fully scaffolded.');
+	console.log('✅ Workspace "' + name + '" scaffolded with UI lib, Storybook, API, Docker.');
 }
