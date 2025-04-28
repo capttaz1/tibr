@@ -1,27 +1,40 @@
-#!/usr/bin/env node
+// commands/init.ts
+import type { Argv } from 'yargs';
 
-import yargs from 'yargs';
-import { hideBin } from 'yargs/helpers';
-import {
-	builder as initBuilder,
-	command as initCommand,
-	desc as initDesc,
-	handler as initHandler,
-	InitOptions,
-} from './commands/init';
-
-async function main() {
-	try {
-		await yargs(hideBin(process.argv))
-			.command<InitOptions>(initCommand, initDesc, initBuilder, initHandler)
-			.demandCommand(1, 'You need to specify at least one command')
-			.strict()
-			.help()
-			.parseAsync();
-	} catch (err) {
-		console.error(err);
-		process.exit(1);
-	}
+export interface InitOptions {
+	name: string;
+	preset: 'react-monorepo' | 'ts';
+	pm: 'npm' | 'yarn' | 'pnpm';
 }
 
-main();
+export const command = 'init <name>';
+export const desc = 'Bootstrap a new Nx workspace + apps/libs';
+
+export const builder = (yargs: Argv): Argv<InitOptions> => {
+	return yargs
+		.positional('name', {
+			describe: 'The name (and folder) of your new workspace',
+			type: 'string',
+			demandOption: true,
+		})
+		.option('preset', {
+			alias: 'p',
+			describe: 'create-nx-workspace preset',
+			type: 'string',
+			choices: ['react-monorepo', 'ts'] as const,
+			default: 'react-monorepo',
+		})
+		.option('pm', {
+			alias: 'm',
+			describe: 'Package manager to use',
+			type: 'string',
+			choices: ['npm', 'yarn', 'pnpm'] as const,
+			default: 'npm',
+		}) as Argv<InitOptions>;
+};
+
+export const handler = async (argv: InitOptions) => {
+	const { name, preset, pm } = argv;
+	console.log(`Bootstrapping "${name}" with preset="${preset}", packageManager="${pm}"…`);
+	// …your existing implementation…
+};
