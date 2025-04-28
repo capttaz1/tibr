@@ -62,11 +62,11 @@ export async function handler(args: InitOptions) {
 
 	process.chdir(workspaceDir);
 
-	// 3) Install essential plugins
+	// 3) Install essential Nx plugins
 	console.log('Installing Nx plugins…');
-	await execa('npm', ['install', '--save-dev', '@nx/react', '@nx/storybook', '@nrwl/express'], { stdio: 'inherit' });
+	await execa('npm', ['install', '--save-dev', '@nx/react', '@nx/storybook', '@nx/express'], { stdio: 'inherit' });
 
-	// 4) Generate UI library (buildable & publishable)
+	// 4) Generate UI library
 	console.log('Generating "ui-components" library…');
 	await execa(
 		'npx',
@@ -76,42 +76,64 @@ export async function handler(args: InitOptions) {
 			'@nx/react:library',
 			'ui-components',
 			'--style=css',
-			'--buildable',
 			'--publishable',
+			'--bundler=rollup',
 			'--importPath=@massxr/ui-components',
 			'--no-interactive',
 		],
 		{ stdio: 'inherit' }
 	);
 
-	// 5) Configure Storybook for ui-components
-	console.log('Configuring Storybook…');
-	await execa(
-		'npx',
-		['nx', 'g', '@nx/react:storybook-configuration', 'ui-components', '--generateStories=true', '--no-interactive'],
-		{ stdio: 'inherit' }
-	);
+	// 5) Configure Storybook
+	console.log('Configuring Storybook for "ui-components"…');
+	const sbDir = path.join(workspaceDir, 'ui-components', '.storybook');
+	fs.mkdirSync(sbDir, { recursive: true });
+	const sbMain = `module.exports = {
+  stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
+  addons: ['@storybook/addon-essentials'],
+  framework: '@storybook/react',
+};`;
+	fs.writeFileSync(path.join(sbDir, 'main.js'), sbMain);
+	const sbPreview = `export const parameters = {
+  actions: { argTypesRegex: '^on[A-Z].*' },
+  controls: { expanded: true },
+};`;
+	fs.writeFileSync(path.join(sbDir, 'preview.js'), sbPreview);
 
 	// 6) Scaffold Express business-api skeleton
 	console.log('Generating Express "business-api"…');
+	const apiProjectName = 'api-business-api';
+	const apiProjectDir = 'api/business-api';
 	await execa(
 		'npx',
-		['nx', 'g', '@nrwl/express:application', 'business-api', '--directory=api', '--no-interactive'],
+		['nx', 'g', '@nx/express:application', apiProjectName, `--directory=${apiProjectDir}`, '--no-interactive'],
 		{ stdio: 'inherit' }
 	);
 
 	// 7) Write placeholder main.ts
-	const apiPath = path.join(workspaceDir, 'apps', 'api', 'business-api', 'src', 'main.ts');
+	const apiRoot = path.join(workspaceDir, 'apps', apiProjectDir, apiProjectName);
+	const apiMainPath = path.join(apiRoot, 'src', 'main.ts');
 	const mainTs = `import express from 'express';
 // TODO: integrate dynamic AI/canonical content per client
 const app = express(); const port = process.env.PORT ?? 3333;
 app.use(express.json());
 app.listen(port, () => console.log('Business API listening on http://localhost:' + port));
 `;
-	fs.writeFileSync(apiPath, mainTs);
+	fs.writeFileSync(apiMainPath, mainTs);
 
-	// 8) Write Dockerfile
-	const dfPath = path.join(workspaceDir, 'apps', 'api', 'business-api', 'Dockerfile');
+	// 8) Fix tsconfig.app.json
+	const tsAppConfigPath = path.join(apiRoot, 'tsconfig.app.json');
+	if (fs.existsSync(tsAppConfigPath)) {
+		const tsAppConfig = JSON.parse(fs.readFileSync(tsAppConfigPath, 'utf-8'));
+		if (tsAppConfig.compilerOptions) {
+			delete tsAppConfig.compilerOptions.bundler;
+			tsAppConfig.compilerOptions.module = 'ES2020';
+		}
+		fs.writeFileSync(tsAppConfigPath, JSON.stringify(tsAppConfig, null, 2));
+	}
+
+	// 9) Write Dockerfile
+	const dfPath = path.join(apiRoot, 'Dockerfile');
 	const df = `FROM node:18-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -123,7 +145,8 @@ CMD ["node","dist/main.js"]
 `;
 	fs.writeFileSync(dfPath, df);
 
-	// 9) Write docker-compose.yaml
+	// 10) Write docker-compose.yaml at workspace root
+	const dcPath = path.join(workspaceDir, 'docker-compose.yaml');
 	const dc = `version: '3.8'
 services:
   postgres:
@@ -149,7 +172,7 @@ services:
   business-api:
     build:
       context: .
-      dockerfile: apps/api/business-api/Dockerfile
+      dockerfile: apps/${apiProjectDir}/${apiProjectName}/Dockerfile
     environment:
       PORT: 3333
       POSTGREST_URL: http://postgrest:3000
@@ -160,7 +183,7 @@ services:
 volumes:
   postgres-data:
 `;
-	fs.writeFileSync(path.join(workspaceDir, 'docker-compose.yaml'), dc);
+	fs.writeFileSync(dcPath, dc);
 
-	console.log('✅ Workspace "' + name + '" scaffolded with UI lib, Storybook, API, Docker.');
+	console.log('✅ Workspace ' + name + ' scaffolded with UI lib, Storybook, API, Docker.');
 }
