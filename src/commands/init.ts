@@ -102,16 +102,15 @@ export async function handler(args: InitOptions) {
 
 	// 6) Scaffold Express business-api skeleton
 	console.log('Generating Express "business-api"…');
-	const apiProjectName = 'api-business-api';
-	const apiProjectDir = 'api/business-api';
+	const apiDir = 'api/business-api';
 	await execa(
 		'npx',
-		['nx', 'g', '@nx/express:application', apiProjectName, `--directory=${apiProjectDir}`, '--no-interactive'],
+		['nx', 'g', '@nx/express:application', 'business-api', `--directory=${apiDir}`, '--no-interactive'],
 		{ stdio: 'inherit' }
 	);
 
 	// 7) Write placeholder main.ts
-	const apiRoot = path.join(workspaceDir, 'apps', apiProjectDir, apiProjectName);
+	const apiRoot = path.join(workspaceDir, 'apps', apiDir);
 	const apiMainPath = path.join(apiRoot, 'src', 'main.ts');
 	const mainTs = `import express from 'express';
 // TODO: integrate dynamic AI/canonical content per client
@@ -172,7 +171,7 @@ services:
   business-api:
     build:
       context: .
-      dockerfile: apps/${apiProjectDir}/${apiProjectName}/Dockerfile
+      dockerfile: apps/${apiDir}/Dockerfile
     environment:
       PORT: 3333
       POSTGREST_URL: http://postgrest:3000
@@ -185,5 +184,5 @@ volumes:
 `;
 	fs.writeFileSync(dcPath, dc);
 
-	console.log('✅ Workspace ' + name + ' scaffolded with UI lib, Storybook, API, Docker.');
+	console.log(`✅ Workspace "${name}" scaffolded with UI lib, Storybook, API, Docker.`);
 }
