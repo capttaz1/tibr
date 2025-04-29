@@ -64,6 +64,16 @@ export async function handler({ name, preset, pm }: InitOptions) {
 	);
 	process.chdir(workspaceDir);
 
+	// Cleanup any stray root-level ui-components or libs/ui-components folders from previous runs
+	const strayRootUI = path.join(workspaceDir, 'ui-components');
+	if (fs.existsSync(strayRootUI)) {
+		fs.rmSync(strayRootUI, { recursive: true, force: true });
+	}
+	const strayLibsUI = path.join(workspaceDir, 'libs', 'ui-components');
+	if (fs.existsSync(strayLibsUI)) {
+		fs.rmSync(strayLibsUI, { recursive: true, force: true });
+	}
+
 	// Clean up any root-level ui-components leftover from prior runs
 	const rootLib = path.join(workspaceDir, 'ui-components');
 	if (fs.existsSync(rootLib)) {
@@ -78,8 +88,24 @@ export async function handler({ name, preset, pm }: InitOptions) {
 			: ['add', '-D', '@nx/react', '@nx/storybook', '@nx/express'];
 	await execa(pm, nxInstallArgs, { stdio: 'inherit' });
 
-	// 4) Generate UI component library under libs folder
+	// 4) Generate UI component library (in libs/ui-components)
 	console.log('Generating ui-components library under libs/...');
+	await execa(
+		'npx',
+		[
+			'nx',
+			'g',
+			'@nx/react:library',
+			'ui-components',
+			// by default, libraries go under libs/<name>
+			'--style=css',
+			'--publishable',
+			'--bundler=rollup',
+			'--importPath=@massxr/ui-components',
+			'--no-interactive',
+		],
+		{ stdio: 'inherit' }
+	);
 	await execa(
 		'npx',
 		[
