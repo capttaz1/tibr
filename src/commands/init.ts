@@ -59,209 +59,166 @@ export async function handler({ name, preset, pm }: InitOptions) {
 	console.log(`Bootstrapping workspace "${name}" (preset=${preset}, pm=${pm})…`);
 	await execa(
 		'npx',
-		['create-nx-workspace@latest', name, `--preset=${preset}`, `--packageManager=${pm}`, '--interactive=false'],
+		[
+			'create-nx-workspace@latest',
+			`--appName=client`,
+			`--name=${name}`,
+			'--bundler=webpack',
+			`--preset=${preset}`,
+			`--packageManager=${pm}`,
+			'--ci=skip',
+			'--unitTestRunner=jest',
+			'--e2eTestRunner=playwright',
+			'--style=css',
+			'--formatter=prettier',
+			'--interactive=true',
+		],
 		{ stdio: 'inherit' }
 	);
 	process.chdir(workspaceDir);
 
-	// Cleanup any stray root-level ui-components or libs/ui-components folders from previous runs
-	const strayRootUI = path.join(workspaceDir, 'ui-components');
-	if (fs.existsSync(strayRootUI)) {
-		fs.rmSync(strayRootUI, { recursive: true, force: true });
-	}
-	const strayLibsUI = path.join(workspaceDir, 'libs', 'ui-components');
-	if (fs.existsSync(strayLibsUI)) {
-		fs.rmSync(strayLibsUI, { recursive: true, force: true });
-	}
-
-	// Clean up any root-level ui-components leftover from prior runs
-	const rootLib = path.join(workspaceDir, 'ui-components');
-	if (fs.existsSync(rootLib)) {
-		fs.rmSync(rootLib, { recursive: true, force: true });
-	}
-
-	// 3) Install Nx plugins
+	// 3) Install Nx plugins this should happen through Nx not NPM? or also with npm?
 	console.log('Installing Nx plugins…');
-	const nxInstallArgs =
-		pm === 'npm'
-			? ['install', '--save-dev', '@nx/react', '@nx/storybook', '@nx/express']
-			: ['add', '-D', '@nx/react', '@nx/storybook', '@nx/express'];
-	await execa(pm, nxInstallArgs, { stdio: 'inherit' });
 
-	// 4) Generate UI component library (in libs/ui-components)
-	console.log('Generating ui-components library under libs/...');
+	// install express
+	await execa('npx', ['nx', 'add', '@nx/express'], { stdio: 'inherit' });
+	// install react
+	await execa('npx', ['nx', 'add', '@nx/react'], { stdio: 'inherit' });
+	// // install cypress - not sure why ...
+	// await execa('npx', ['nx', 'add', '@nx/cypress'], { stdio: 'inherit' });
+	// // install storybook
+	// await execa('npx', ['nx', 'add', '@nx/storybook'], { stdio: 'inherit' });
+	// // install playwright
+	// await execa('npx', ['nx', 'add', '@nx/playwright'], { stdio: 'inherit' });
+
+	// 4) Generate UI component library (in libs/ui)
+	console.log('Generating ui components library...');
+	// correct command
+	// npx nx g @nx/react:library libs/shared/ui --unitTestRunner=jest --bundler=none
 	await execa(
 		'npx',
 		[
 			'nx',
 			'g',
 			'@nx/react:library',
-			'ui-components',
-			// by default, libraries go under libs/<name>
-			'--style=css',
-			'--publishable',
-			'--bundler=rollup',
-			'--importPath=@massxr/ui-components',
-			'--no-interactive',
+			'--name=ui',
+			'--directory=libs/shared/ui',
+			'--bundler=none',
+			'--linter=eslint',
+			'--unitTestRunner=jest',
+			'--e2eTestRunner=none',
+			'--interactive=true',
 		],
-		{ stdio: 'inherit' }
-	);
-	await execa(
-		'npx',
-		[
-			'nx',
-			'g',
-			'@nx/react:library',
-			'ui-components',
-			'--directory=libs',
-			'--style=css',
-			'--publishable',
-			'--bundler=rollup',
-			'--importPath=@massxr/ui-components',
-			'--no-interactive',
-		],
-		{ stdio: 'inherit' }
+		{
+			stdio: 'inherit',
+		}
 	);
 
 	// 5) Add and configure Storybook via Nx plugin
 	console.log('Adding and configuring @nx/storybook plugin...');
-	await execa('npx', ['nx', 'add', '@nx/storybook'], { stdio: 'inherit' });
-
-	// Write manual .storybook configuration
-	const sbRoot = path.join(workspaceDir, 'libs', 'ui-components');
-	const sbConfigDir = path.join(sbRoot, '.storybook');
-	fs.mkdirSync(sbConfigDir, { recursive: true });
-	const mainTs = `import type { StorybookConfig } from '@storybook/react-webpack5';
-const config: StorybookConfig = {
-  stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
-  addons: ['@storybook/addon-essentials'],
-  framework: '@storybook/react-webpack5',
-};
-export default config;
-`;
-	fs.writeFileSync(path.join(sbConfigDir, 'main.ts'), mainTs);
-
-	// Patch ui-components project.json to add Storybook targets
-	const projJsonPath = path.join(sbRoot, 'project.json');
-	if (fs.existsSync(projJsonPath)) {
-		const proj = JSON.parse(fs.readFileSync(projJsonPath, 'utf-8'));
-		proj.targets = proj.targets || {};
-		if (!proj.targets.storybook) {
-			proj.targets.storybook = {
-				executor: '@nx/storybook:storybook',
-				options: {
-					uiFramework: '@storybook/react-webpack5',
-					config: { configFolder: '.storybook' },
-					outputDir: 'dist/storybook/ui-components',
-				},
-			};
-			proj.targets['build-storybook'] = {
-				executor: '@nx/storybook:build',
-				options: {
-					uiFramework: '@storybook/react-webpack5',
-					config: { configFolder: '.storybook' },
-					outputDir: 'dist/storybook/ui-components',
-				},
-			};
-			fs.writeFileSync(projJsonPath, JSON.stringify(proj, null, 2));
-		}
-	}
-
-	// 6) Generate Express business-api (no e2e) (no e2e)
-	console.log('Generating business-api application…');
-	const apiDir = 'apps/api/business-api';
+	// correct command: nx g @nx/react:storybook-configuration ui
 	await execa(
 		'npx',
 		[
 			'nx',
 			'g',
-			'@nx/express:application',
-			'business-api',
-			`--directory=${apiDir}`,
-			'--e2eTestRunner=none',
-			'--no-interactive',
+			'@nx/react:storybook-configuration',
+			'ui',
+			'--generateStories=true',
+			'--configureStaticServe=true',
+			'--interactionTests=true',
 		],
-		{ stdio: 'inherit' }
+		{
+			stdio: 'inherit',
+		}
 	);
 
-	// 7) Write placeholder main.ts for API
-	const apiRoot = path.join(workspaceDir, apiDir);
-	const apiMain = path.join(apiRoot, 'src', 'main.ts');
-	fs.mkdirSync(path.dirname(apiMain), { recursive: true });
-	fs.writeFileSync(
-		apiMain,
-		`import express from 'express';
-const app = express();
-const port = process.env.PORT ?? 3333;
-app.use(express.json());
-app.listen(port, () => console.log('Business API listening on http://localhost:' + port));
-`
+	// 6) Generate Express business api (no e2e)
+	// npx nx g @nx/react:library libs/api --unitTestRunner=jest --bundler=none
+	// npx nx g @nx/express:app apps/my-express-api
+	console.log('Generating business api application…');
+	await execa(
+		'npx',
+		[
+			'nx',
+			'g',
+			'@nx/express:app',
+			'--name=api',
+			'--directory=libs/api',
+			'--bundler=none',
+			'--linter=eslint',
+			'--unitTestRunner=jest',
+			'--e2eTestRunner=none',
+			'--interactive=true',
+		],
+		{
+			stdio: 'inherit',
+		}
 	);
 
-	// 8) Fix tsconfig.app.json
-	const tsPath = path.join(apiRoot, 'tsconfig.app.json');
-	if (fs.existsSync(tsPath)) {
-		const cfg = JSON.parse(fs.readFileSync(tsPath, 'utf-8'));
-		cfg.compilerOptions = cfg.compilerOptions || {};
-		cfg.compilerOptions.moduleResolution = 'NodeNext';
-		cfg.compilerOptions.module = 'NodeNext';
-		delete cfg.compilerOptions.bundler;
-		fs.writeFileSync(tsPath, JSON.stringify(cfg, null, 2));
-	}
+	// 7) Create a js library to hold the backend docker compose
+	console.log('Generating docker compose library...');
+	// command: npx nx g @nx/js:lib libs/mylib --bundler=none
 
-	// 9) Write Dockerfile for API
-	fs.writeFileSync(
-		path.join(apiRoot, 'Dockerfile'),
-		`FROM node:18-alpine
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-COPY . .
-RUN npm run build
-EXPOSE 3333
-CMD ["node","dist/main.js"]
-`
+	await execa(
+		'npx',
+		[
+			'nx',
+			'g',
+			'@nx/js:library',
+			'--name=data',
+			'--bundler=none',
+			'--directory=libs/data',
+			'--linter=eslint',
+			'--unitTestRunner=jest',
+			'--e2eTestRunner=none',
+			'--interactive=true',
+		],
+		{
+			stdio: 'inherit',
+		}
 	);
 
-	// 10) Emit docker-compose.yaml
+	// 9) Write the docker-compose for the backend
+	const dataRoot = path.join(workspaceDir, 'libs', 'data');
 	fs.writeFileSync(
-		path.join(workspaceDir, 'docker-compose.yaml'),
+		path.join(dataRoot, 'docker-compose.yml'),
 		`version: '3.8'
-services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: tibr
-      POSTGRES_PASSWORD: changeme
-      POSTGRES_DB: tibr
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    ports:
-      - '5432:5432'
-  postgrest:
-    image: postgrest/postgrest
-    environment:
-      PGRST_DB_URI: postgres://tibr:changeme@postgres:5432/tibr
-      PGRST_DB_SCHEMA: public
-      PGRST_DB_ANON_ROLE: anon
-    ports:
-      - '3000:3000'
-    depends_on:
-      - postgres
-  business-api:
-    build:
-      context: .
-      dockerfile: apps/api/business-api/Dockerfile
-    environment:
-      PORT: 3333
-      POSTGREST_URL: http://postgrest:3000
-    ports:
-      - '3333:3333'
-    depends_on:
-      - postgrest
-volumes:
-  postgres-data:
-`
+	services:
+	  postgres:
+	    image: postgres:15
+	    environment:
+	      POSTGRES_USER: tibr
+	      POSTGRES_PASSWORD: changeme
+	      POSTGRES_DB: tibr
+	    volumes:
+	      - postgres-data:/var/lib/postgresql/data
+	    ports:
+	      - '5432:5432'
+	  postgrest:
+	    image: postgrest/postgrest
+	    environment:
+	      PGRST_DB_URI: postgres://tibr:changeme@postgres:5432/tibr
+	      PGRST_DB_SCHEMA: public
+	      PGRST_DB_ANON_ROLE: anon
+	    ports:
+	      - '3000:3000'
+	    depends_on:
+	      - postgres
+	  business-api:
+	    build:
+	      context: .
+	      dockerfile: apps/api/business-api/Dockerfile
+	    environment:
+	      PORT: 3333
+	      POSTGREST_URL: http://postgrest:3000
+	    ports:
+	      - '3333:3333'
+	    depends_on:
+	      - postgrest
+	volumes:
+	  postgres-data:
+	`
 	);
 
 	console.log(`✅ Workspace "${name}" scaffolded!`);
