@@ -66,11 +66,38 @@ export async function handler(args: InitOptions) {
 
 	process.chdir(workspaceDir);
 
-	// 3) Install plugins
+	// 3) Install Nx plugins
 	console.log('Installing Nx plugins...');
 	await execa('npm', ['install', '--save-dev', '@nx/react', '@nx/storybook', '@nx/express'], { stdio: 'inherit' });
 
-	// 4) Generate UI library
+	// 4) Add and configure Storybook plugin
+	console.log('Adding and configuring @nx/storybook plugin...');
+	await execa('npx', ['nx', 'add', '@nx/storybook'], { stdio: 'inherit' });
+	// Generate Storybook config for ui-components
+	await execa('npx', ['nx', 'g', '@nx/react:storybook-configuration', 'ui-components', '--configureCypress=false'], {
+		stdio: 'inherit',
+	});
+
+	// Patch nx.json to register plugin
+	const nxJsonPath = path.join(workspaceDir, 'nx.json');
+	if (fs.existsSync(nxJsonPath)) {
+		const nxJson = JSON.parse(fs.readFileSync(nxJsonPath, 'utf-8'));
+		nxJson.plugins = nxJson.plugins || [];
+		if (!nxJson.plugins.some((p: any) => p.plugin === '@nx/storybook/plugin')) {
+			nxJson.plugins.push({
+				plugin: '@nx/storybook/plugin',
+				options: {
+					buildStorybookTargetName: 'build-storybook',
+					serveStorybookTargetName: 'storybook',
+					testStorybookTargetName: 'test-storybook',
+					staticStorybookTargetName: 'static-storybook',
+				},
+			});
+			fs.writeFileSync(nxJsonPath, JSON.stringify(nxJson, null, 2));
+		}
+	}
+
+	// 5) Generate UI component library
 	console.log('Generating ui-components library...');
 	await execa(
 		'npx',
@@ -88,50 +115,8 @@ export async function handler(args: InitOptions) {
 		{ stdio: 'inherit' }
 	);
 
-	// 5) Manually configure Storybook for ui-components
-	const sbRoot = path.join(workspaceDir, 'ui-components', '.storybook');
-	fs.mkdirSync(sbRoot, { recursive: true });
-	fs.writeFileSync(
-		path.join(sbRoot, 'main.js'),
-		`module.exports = {
-  stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
-  addons: ['@storybook/addon-essentials'],
-  framework: '@storybook/react',
-};`
-	);
-	fs.writeFileSync(
-		path.join(sbRoot, 'preview.js'),
-		`export const parameters = {
-  actions: { argTypesRegex: '^on[A-Z].*' },
-  controls: { expanded: true },
-};`
-	);
-	// Update ui-components project.json to add Storybook targets
-	const projJsonPath = path.join(workspaceDir, 'ui-components', 'project.json');
-	if (fs.existsSync(projJsonPath)) {
-		const projJson = JSON.parse(fs.readFileSync(projJsonPath, 'utf-8'));
-		projJson.targets = projJson.targets || {};
-		projJson.targets.storybook = {
-			executor: '@nx/storybook:storybook',
-			options: {
-				uiFramework: '@storybook/react',
-				config: { configFolder: 'ui-components/.storybook' },
-				outputDir: 'dist/storybook/ui-components',
-			},
-		};
-		projJson.targets['build-storybook'] = {
-			executor: '@nx/storybook:build',
-			options: {
-				uiFramework: '@storybook/react',
-				config: { configFolder: 'ui-components/.storybook' },
-				outputDir: 'dist/storybook/ui-components',
-			},
-		};
-		fs.writeFileSync(projJsonPath, JSON.stringify(projJson, null, 2));
-	}
-	// 6) Generate Express API
+	// 6) Generate Express API (no e2e)
 	console.log('Generating business-api application...');
-	const apiProj = 'business-api';
 	const apiDir = 'apps/api/business-api';
 	await execa(
 		'npx',
@@ -139,7 +124,7 @@ export async function handler(args: InitOptions) {
 			'nx',
 			'g',
 			'@nx/express:application',
-			apiProj,
+			'business-api',
 			`--directory=${apiDir}`,
 			'--e2eTestRunner=none',
 			'--no-interactive',
@@ -162,7 +147,7 @@ app.listen(port, () => console.log('Business API listening on http://localhost:'
 `
 	);
 
-	// 8) Update tsconfig.app.json for NodeNext
+	// 8) Update tsconfig.app.json for NodeNext modules
 	const tsPath = path.join(apiRoot, 'tsconfig.app.json');
 	if (fs.existsSync(tsPath)) {
 		const config = JSON.parse(fs.readFileSync(tsPath, 'utf-8'));
@@ -187,7 +172,7 @@ CMD ["node","dist/main.js"]
 `
 	);
 
-	// 10) docker-compose.yaml
+	// 10) Emit docker-compose.yaml at workspace root
 	fs.writeFileSync(
 		path.join(workspaceDir, 'docker-compose.yaml'),
 		`version: '3.8'
