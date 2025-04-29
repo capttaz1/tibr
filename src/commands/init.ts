@@ -39,7 +39,7 @@ export async function handler(args: InitOptions) {
 	const { name, preset, pm } = args;
 	const workspaceDir = path.resolve(process.cwd(), name);
 
-	// 1) Remove existing folder if present
+	// 1) Clean up existing workspace
 	if (fs.existsSync(workspaceDir)) {
 		const { confirm } = await inquirer.prompt([
 			{ type: 'confirm', name: 'confirm', message: `Directory "${name}" exists. Delete?`, default: false },
@@ -59,14 +59,13 @@ export async function handler(args: InitOptions) {
 		['create-nx-workspace@latest', name, `--preset=${preset}`, `--packageManager=${pm}`, '--interactive=false'],
 		{ stdio: 'inherit' }
 	);
-
 	process.chdir(workspaceDir);
 
-	// 3) Install essential Nx plugins
+	// 3) Install Nx plugins
 	console.log('Installing Nx plugins…');
 	await execa('npm', ['install', '--save-dev', '@nx/react', '@nx/storybook', '@nx/express'], { stdio: 'inherit' });
 
-	// 4) Generate UI library
+	// 4) Generate UI component library
 	console.log('Generating "ui-components" library…');
 	await execa(
 		'npx',
@@ -88,65 +87,84 @@ export async function handler(args: InitOptions) {
 	console.log('Configuring Storybook for "ui-components"…');
 	const sbDir = path.join(workspaceDir, 'ui-components', '.storybook');
 	fs.mkdirSync(sbDir, { recursive: true });
-	const sbMain = `module.exports = {
-  stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
-  addons: ['@storybook/addon-essentials'],
-  framework: '@storybook/react',
-};`;
-	fs.writeFileSync(path.join(sbDir, 'main.js'), sbMain);
-	const sbPreview = `export const parameters = {
-  actions: { argTypesRegex: '^on[A-Z].*' },
-  controls: { expanded: true },
-};`;
-	fs.writeFileSync(path.join(sbDir, 'preview.js'), sbPreview);
+	fs.writeFileSync(
+		path.join(sbDir, 'main.js'),
+		`module.exports = {
+      stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
+      addons: ['@storybook/addon-essentials'],
+      framework: '@storybook/react',
+    };`
+	);
+	fs.writeFileSync(
+		path.join(sbDir, 'preview.js'),
+		`export const parameters = {
+      actions: { argTypesRegex: '^on[A-Z].*' },
+      controls: { expanded: true },
+    };`
+	);
 
-	// 6) Scaffold Express business-api skeleton
-	console.log('Generating Express "business-api"…');
-	const apiDir = 'api/business-api';
+	// 6) Scaffold Express API under apps/api/business-api
+	console.log('Generating Express "business-api" application…');
+	const apiProject = 'business-api';
+	const apiDir = 'apps/api/business-api';
 	await execa(
 		'npx',
-		['nx', 'g', '@nx/express:application', 'business-api', `--directory=${apiDir}`, '--no-interactive'],
+		[
+			'nx',
+			'g',
+			'@nx/express:application',
+			apiProject,
+			`--directory=${apiDir}`,
+			'--e2eTestRunner=none',
+			'--no-interactive',
+		],
 		{ stdio: 'inherit' }
 	);
 
-	// 7) Write placeholder main.ts
-	const apiRoot = path.join(workspaceDir, 'apps', apiDir);
-	const apiMainPath = path.join(apiRoot, 'src', 'main.ts');
-	const mainTs = `import express from 'express';
-// TODO: integrate dynamic AI/canonical content per client
-const app = express(); const port = process.env.PORT ?? 3333;
-app.use(express.json());
-app.listen(port, () => console.log('Business API listening on http://localhost:' + port));
-`;
-	fs.writeFileSync(apiMainPath, mainTs);
+	// 7) Write placeholder main.ts in API project
+	const projectRoot = path.join(workspaceDir, apiDir);
+	const mainTsPath = path.join(projectRoot, 'src', 'main.ts');
+	fs.mkdirSync(path.dirname(mainTsPath), { recursive: true });
+	fs.writeFileSync(
+		mainTsPath,
+		`import express from 'express';
+    // TODO: integrate dynamic AI-driven content per client
+    const app = express();
+    const port = process.env.PORT ?? 3333;
+    app.use(express.json());
+    app.listen(port, () => console.log('Business API listening on http://localhost:' + port));
+;`
+	);
 
-	// 8) Fix tsconfig.app.json
-	const tsAppConfigPath = path.join(apiRoot, 'tsconfig.app.json');
-	if (fs.existsSync(tsAppConfigPath)) {
-		const tsAppConfig = JSON.parse(fs.readFileSync(tsAppConfigPath, 'utf-8'));
-		if (tsAppConfig.compilerOptions) {
-			delete tsAppConfig.compilerOptions.bundler;
-			tsAppConfig.compilerOptions.module = 'ES2020';
+	// 8) Adjust tsconfig.app.json
+	const tsConfigPath = path.join(projectRoot, 'tsconfig.app.json');
+	if (fs.existsSync(tsConfigPath)) {
+		const cfg = JSON.parse(fs.readFileSync(tsConfigPath, 'utf-8'));
+		if (cfg.compilerOptions) {
+			delete cfg.compilerOptions.bundler;
+			const mr = cfg.compilerOptions.moduleResolution;
+			cfg.compilerOptions.module = mr === 'NodeNext' ? 'NodeNext' : 'ES2020';
 		}
-		fs.writeFileSync(tsAppConfigPath, JSON.stringify(tsAppConfig, null, 2));
+		fs.writeFileSync(tsConfigPath, JSON.stringify(cfg, null, 2));
 	}
 
-	// 9) Write Dockerfile
-	const dfPath = path.join(apiRoot, 'Dockerfile');
-	const df = `FROM node:18-alpine
+	// 9) Write Dockerfile for API
+	fs.writeFileSync(
+		path.join(projectRoot, 'Dockerfile'),
+		`FROM node:18-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY . .
 RUN npm run build
 EXPOSE 3333
-CMD ["node","dist/main.js"]
-`;
-	fs.writeFileSync(dfPath, df);
+CMD [\"node\",\"dist/main.js\"]`
+	);
 
-	// 10) Write docker-compose.yaml at workspace root
-	const dcPath = path.join(workspaceDir, 'docker-compose.yaml');
-	const dc = `version: '3.8'
+	// 10) Emit top-level docker-compose.yaml
+	fs.writeFileSync(
+		path.join(workspaceDir, 'docker-compose.yaml'),
+		`version: '3.8'
 services:
   postgres:
     image: postgres:15
@@ -171,7 +189,7 @@ services:
   business-api:
     build:
       context: .
-      dockerfile: apps/${apiDir}/Dockerfile
+      dockerfile: ${apiDir}/Dockerfile
     environment:
       PORT: 3333
       POSTGREST_URL: http://postgrest:3000
@@ -181,8 +199,8 @@ services:
       - postgrest
 volumes:
   postgres-data:
-`;
-	fs.writeFileSync(dcPath, dc);
+`
+	);
 
-	console.log(`✅ Workspace "${name}" scaffolded with UI lib, Storybook, API, Docker.`);
+	console.log(`✅ Workspace "${name}" scaffolded!`);
 }
