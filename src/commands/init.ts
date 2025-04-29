@@ -35,11 +35,10 @@ export interface InitOptions {
 	pm: 'npm' | 'yarn' | 'pnpm';
 }
 
-export async function handler(args: InitOptions) {
-	const { name, preset, pm } = args;
+export async function handler({ name, preset, pm }: InitOptions) {
 	const workspaceDir = path.resolve(process.cwd(), name);
 
-	// 1) Remove existing directory if requested
+	// 1) Remove existing directory
 	if (fs.existsSync(workspaceDir)) {
 		const { confirm } = await inquirer.prompt([
 			{
@@ -57,50 +56,20 @@ export async function handler(args: InitOptions) {
 	}
 
 	// 2) Bootstrap Nx workspace
-	console.log(`Bootstrapping workspace "${name}" with preset=${preset}, pm=${pm}…`);
+	console.log(`Bootstrapping workspace "${name}" (preset=${preset}, pm=${pm})…`);
 	await execa(
 		'npx',
 		['create-nx-workspace@latest', name, `--preset=${preset}`, `--packageManager=${pm}`, '--interactive=false'],
 		{ stdio: 'inherit' }
 	);
-
 	process.chdir(workspaceDir);
 
 	// 3) Install Nx plugins
-	console.log('Installing Nx plugins...');
+	console.log('Installing Nx plugins…');
 	await execa('npm', ['install', '--save-dev', '@nx/react', '@nx/storybook', '@nx/express'], { stdio: 'inherit' });
 
-	// 4) Add and configure Storybook plugin
-	console.log('Adding and configuring @nx/storybook plugin...');
-	await execa('npx', ['nx', 'add', '@nx/storybook'], { stdio: 'inherit' });
-	// Generate Storybook config for ui-components
-	await execa(
-		'npx',
-		['nx', 'g', '@nx/react:storybook-configuration', 'ui-components', '--generateStories=true', '--no-interactive'],
-		{ stdio: 'inherit' }
-	);
-
-	// Patch nx.json to register plugin
-	const nxJsonPath = path.join(workspaceDir, 'nx.json');
-	if (fs.existsSync(nxJsonPath)) {
-		const nxJson = JSON.parse(fs.readFileSync(nxJsonPath, 'utf-8'));
-		nxJson.plugins = nxJson.plugins || [];
-		if (!nxJson.plugins.some((p: any) => p.plugin === '@nx/storybook/plugin')) {
-			nxJson.plugins.push({
-				plugin: '@nx/storybook/plugin',
-				options: {
-					buildStorybookTargetName: 'build-storybook',
-					serveStorybookTargetName: 'storybook',
-					testStorybookTargetName: 'test-storybook',
-					staticStorybookTargetName: 'static-storybook',
-				},
-			});
-			fs.writeFileSync(nxJsonPath, JSON.stringify(nxJson, null, 2));
-		}
-	}
-
-	// 5) Generate UI component library
-	console.log('Generating ui-components library...');
+	// 4) Generate UI library
+	console.log('Generating ui-components library…');
 	await execa(
 		'npx',
 		[
@@ -117,8 +86,53 @@ export async function handler(args: InitOptions) {
 		{ stdio: 'inherit' }
 	);
 
-	// 6) Generate Express API (no e2e)
-	console.log('Generating business-api application...');
+	// 5) Manual Storybook config
+	console.log('Configuring Storybook for ui-components…');
+	const sbDir = path.join(workspaceDir, 'ui-components', '.storybook');
+	fs.mkdirSync(sbDir, { recursive: true });
+	fs.writeFileSync(
+		path.join(sbDir, 'main.js'),
+		`module.exports = {
+  stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
+  addons: ['@storybook/addon-essentials'],
+  framework: '@storybook/react',
+};`
+	);
+	fs.writeFileSync(
+		path.join(sbDir, 'preview.js'),
+		`export const parameters = {
+  actions: { argTypesRegex: '^on[A-Z].*' },
+  controls: { expanded: true },
+};`
+	);
+	// Patch project.json
+	const projJson = path.join(workspaceDir, 'ui-components', 'project.json');
+	if (fs.existsSync(projJson)) {
+		const cfg = JSON.parse(fs.readFileSync(projJson, 'utf-8'));
+		cfg.targets = cfg.targets || {};
+		if (!cfg.targets.storybook) {
+			cfg.targets.storybook = {
+				executor: '@nx/storybook:storybook',
+				options: {
+					uiFramework: '@storybook/react',
+					config: { configFolder: 'ui-components/.storybook' },
+					outputDir: 'dist/storybook/ui-components',
+				},
+			};
+			cfg.targets['build-storybook'] = {
+				executor: '@nx/storybook:build',
+				options: {
+					uiFramework: '@storybook/react',
+					config: { configFolder: 'ui-components/.storybook' },
+					outputDir: 'dist/storybook/ui-components',
+				},
+			};
+			fs.writeFileSync(projJson, JSON.stringify(cfg, null, 2));
+		}
+	}
+
+	// 6) Generate Express API
+	console.log('Generating business-api application…');
 	const apiDir = 'apps/api/business-api';
 	await execa(
 		'npx',
@@ -136,31 +150,32 @@ export async function handler(args: InitOptions) {
 
 	// 7) Write placeholder main.ts
 	const apiRoot = path.join(workspaceDir, apiDir);
-	const mainFile = path.join(apiRoot, 'src', 'main.ts');
-	fs.mkdirSync(path.dirname(mainFile), { recursive: true });
+	const mainTs = path.join(apiRoot, 'src', 'main.ts');
+	fs.mkdirSync(path.dirname(mainTs), { recursive: true });
 	fs.writeFileSync(
-		mainFile,
+		mainTs,
 		`import express from 'express';
-// TODO: plug in dynamic AI-driven content
 const app = express();
 const port = process.env.PORT ?? 3333;
 app.use(express.json());
-app.listen(port, () => console.log('Business API listening on http://localhost:' + port));
+app.listen(port, () => console.log(
+  'Business API listening on http://localhost:' + port
+));
 `
 	);
 
-	// 8) Update tsconfig.app.json for NodeNext modules
+	// 8) Fix tsconfig
 	const tsPath = path.join(apiRoot, 'tsconfig.app.json');
 	if (fs.existsSync(tsPath)) {
-		const config = JSON.parse(fs.readFileSync(tsPath, 'utf-8'));
-		config.compilerOptions = config.compilerOptions || {};
-		config.compilerOptions.moduleResolution = 'NodeNext';
-		config.compilerOptions.module = 'NodeNext';
-		delete config.compilerOptions.bundler;
-		fs.writeFileSync(tsPath, JSON.stringify(config, null, 2));
+		const c = JSON.parse(fs.readFileSync(tsPath, 'utf-8'));
+		c.compilerOptions = c.compilerOptions || {};
+		c.compilerOptions.moduleResolution = 'NodeNext';
+		c.compilerOptions.module = 'NodeNext';
+		delete c.compilerOptions.bundler;
+		fs.writeFileSync(tsPath, JSON.stringify(c, null, 2));
 	}
 
-	// 9) Write Dockerfile for API
+	// 9) Write Dockerfile
 	fs.writeFileSync(
 		path.join(apiRoot, 'Dockerfile'),
 		`FROM node:18-alpine
@@ -174,7 +189,7 @@ CMD ["node","dist/main.js"]
 `
 	);
 
-	// 10) Emit docker-compose.yaml at workspace root
+	// 10) docker-compose
 	fs.writeFileSync(
 		path.join(workspaceDir, 'docker-compose.yaml'),
 		`version: '3.8'
@@ -202,7 +217,7 @@ services:
   business-api:
     build:
       context: .
-      dockerfile: ${apiDir}/Dockerfile
+      dockerfile: apps/api/business-api/Dockerfile
     environment:
       PORT: 3333
       POSTGREST_URL: http://postgrest:3000
