@@ -74,9 +74,11 @@ export async function handler(args: InitOptions) {
 	console.log('Adding and configuring @nx/storybook plugin...');
 	await execa('npx', ['nx', 'add', '@nx/storybook'], { stdio: 'inherit' });
 	// Generate Storybook config for ui-components
-	await execa('npx', ['nx', 'g', '@nx/react:storybook-configuration', 'ui-components', '--configureCypress=false'], {
-		stdio: 'inherit',
-	});
+	await execa(
+		'npx',
+		['nx', 'g', '@nx/react:storybook-configuration', 'ui-components', '--generateStories=true', '--no-interactive'],
+		{ stdio: 'inherit' }
+	);
 
 	// Patch nx.json to register plugin
 	const nxJsonPath = path.join(workspaceDir, 'nx.json');
