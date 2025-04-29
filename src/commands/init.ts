@@ -66,9 +66,13 @@ export async function handler({ name, preset, pm }: InitOptions) {
 
 	// 3) Install Nx plugins
 	console.log('Installing Nx plugins…');
-	await execa('npm', ['install', '--save-dev', '@nx/react', '@nx/storybook', '@nx/express'], { stdio: 'inherit' });
+	const nxInstallArgs =
+		pm === 'npm'
+			? ['install', '--save-dev', '@nx/react', '@nx/storybook', '@nx/express']
+			: ['add', '-D', '@nx/react', '@nx/storybook', '@nx/express'];
+	await execa(pm, nxInstallArgs, { stdio: 'inherit' });
 
-	// 4) Generate UI library
+	// 4) Generate UI component library
 	console.log('Generating ui-components library…');
 	await execa(
 		'npx',
@@ -86,52 +90,51 @@ export async function handler({ name, preset, pm }: InitOptions) {
 		{ stdio: 'inherit' }
 	);
 
-	// 5) Manual Storybook config
-	console.log('Configuring Storybook for ui-components…');
-	const sbDir = path.join(workspaceDir, 'ui-components', '.storybook');
-	fs.mkdirSync(sbDir, { recursive: true });
-	fs.writeFileSync(
-		path.join(sbDir, 'main.js'),
-		`module.exports = {
+	// 5) Add and configure Storybook via Nx plugin
+	console.log('Adding and configuring @nx/storybook plugin...');
+	await execa('npx', ['nx', 'add', '@nx/storybook'], { stdio: 'inherit' });
+
+	// Write manual .storybook configuration
+	const sbRoot = path.join(workspaceDir, 'libs', 'ui-components');
+	const sbConfigDir = path.join(sbRoot, '.storybook');
+	fs.mkdirSync(sbConfigDir, { recursive: true });
+	const mainTs = `import type { StorybookConfig } from '@storybook/react-webpack5';
+const config: StorybookConfig = {
   stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
   addons: ['@storybook/addon-essentials'],
-  framework: '@storybook/react',
-};`
-	);
-	fs.writeFileSync(
-		path.join(sbDir, 'preview.js'),
-		`export const parameters = {
-  actions: { argTypesRegex: '^on[A-Z].*' },
-  controls: { expanded: true },
-};`
-	);
-	// Patch project.json
-	const projJson = path.join(workspaceDir, 'ui-components', 'project.json');
-	if (fs.existsSync(projJson)) {
-		const cfg = JSON.parse(fs.readFileSync(projJson, 'utf-8'));
-		cfg.targets = cfg.targets || {};
-		if (!cfg.targets.storybook) {
-			cfg.targets.storybook = {
+  framework: '@storybook/react-webpack5',
+};
+export default config;
+`;
+	fs.writeFileSync(path.join(sbConfigDir, 'main.ts'), mainTs);
+
+	// Patch ui-components project.json to add Storybook targets
+	const projJsonPath = path.join(sbRoot, 'project.json');
+	if (fs.existsSync(projJsonPath)) {
+		const proj = JSON.parse(fs.readFileSync(projJsonPath, 'utf-8'));
+		proj.targets = proj.targets || {};
+		if (!proj.targets.storybook) {
+			proj.targets.storybook = {
 				executor: '@nx/storybook:storybook',
 				options: {
-					uiFramework: '@storybook/react',
-					config: { configFolder: 'ui-components/.storybook' },
+					uiFramework: '@storybook/react-webpack5',
+					config: { configFolder: '.storybook' },
 					outputDir: 'dist/storybook/ui-components',
 				},
 			};
-			cfg.targets['build-storybook'] = {
+			proj.targets['build-storybook'] = {
 				executor: '@nx/storybook:build',
 				options: {
-					uiFramework: '@storybook/react',
-					config: { configFolder: 'ui-components/.storybook' },
+					uiFramework: '@storybook/react-webpack5',
+					config: { configFolder: '.storybook' },
 					outputDir: 'dist/storybook/ui-components',
 				},
 			};
-			fs.writeFileSync(projJson, JSON.stringify(cfg, null, 2));
+			fs.writeFileSync(projJsonPath, JSON.stringify(proj, null, 2));
 		}
 	}
 
-	// 6) Generate Express API
+	// 6) Generate Express business-api (no e2e) (no e2e)
 	console.log('Generating business-api application…');
 	const apiDir = 'apps/api/business-api';
 	await execa(
@@ -148,34 +151,32 @@ export async function handler({ name, preset, pm }: InitOptions) {
 		{ stdio: 'inherit' }
 	);
 
-	// 7) Write placeholder main.ts
+	// 7) Write placeholder main.ts for API
 	const apiRoot = path.join(workspaceDir, apiDir);
-	const mainTs = path.join(apiRoot, 'src', 'main.ts');
-	fs.mkdirSync(path.dirname(mainTs), { recursive: true });
+	const apiMain = path.join(apiRoot, 'src', 'main.ts');
+	fs.mkdirSync(path.dirname(apiMain), { recursive: true });
 	fs.writeFileSync(
-		mainTs,
+		apiMain,
 		`import express from 'express';
 const app = express();
 const port = process.env.PORT ?? 3333;
 app.use(express.json());
-app.listen(port, () => console.log(
-  'Business API listening on http://localhost:' + port
-));
+app.listen(port, () => console.log('Business API listening on http://localhost:' + port));
 `
 	);
 
-	// 8) Fix tsconfig
+	// 8) Fix tsconfig.app.json
 	const tsPath = path.join(apiRoot, 'tsconfig.app.json');
 	if (fs.existsSync(tsPath)) {
-		const c = JSON.parse(fs.readFileSync(tsPath, 'utf-8'));
-		c.compilerOptions = c.compilerOptions || {};
-		c.compilerOptions.moduleResolution = 'NodeNext';
-		c.compilerOptions.module = 'NodeNext';
-		delete c.compilerOptions.bundler;
-		fs.writeFileSync(tsPath, JSON.stringify(c, null, 2));
+		const cfg = JSON.parse(fs.readFileSync(tsPath, 'utf-8'));
+		cfg.compilerOptions = cfg.compilerOptions || {};
+		cfg.compilerOptions.moduleResolution = 'NodeNext';
+		cfg.compilerOptions.module = 'NodeNext';
+		delete cfg.compilerOptions.bundler;
+		fs.writeFileSync(tsPath, JSON.stringify(cfg, null, 2));
 	}
 
-	// 9) Write Dockerfile
+	// 9) Write Dockerfile for API
 	fs.writeFileSync(
 		path.join(apiRoot, 'Dockerfile'),
 		`FROM node:18-alpine
@@ -189,7 +190,7 @@ CMD ["node","dist/main.js"]
 `
 	);
 
-	// 10) docker-compose
+	// 10) Emit docker-compose.yaml
 	fs.writeFileSync(
 		path.join(workspaceDir, 'docker-compose.yaml'),
 		`version: '3.8'
