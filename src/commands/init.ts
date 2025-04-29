@@ -88,24 +88,20 @@ export async function handler(args: InitOptions) {
 		{ stdio: 'inherit' }
 	);
 
-	// 5) Configure Storybook
+	// 5) Configure Storybook via Nx generator
 	console.log('Configuring Storybook for ui-components...');
-	const sbRoot = path.join(workspaceDir, 'ui-components', '.storybook');
-	fs.mkdirSync(sbRoot, { recursive: true });
-	fs.writeFileSync(
-		path.join(sbRoot, 'main.js'),
-		`module.exports = {
-  stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
-  addons: ['@storybook/addon-essentials'],
-  framework: '@storybook/react',
-};`
-	);
-	fs.writeFileSync(
-		path.join(sbRoot, 'preview.js'),
-		`export const parameters = {
-  actions: { argTypesRegex: '^on[A-Z].*' },
-  controls: { expanded: true },
-};`
+	await execa(
+		'npx',
+		[
+			'nx',
+			'g',
+			'@nx/storybook:configuration',
+			'ui-components',
+			'--generateStories=true',
+			'--uiFramework=@storybook/react',
+			'--no-interactive',
+		],
+		{ stdio: 'inherit' }
 	);
 
 	// 6) Generate Express API
@@ -133,7 +129,7 @@ export async function handler(args: InitOptions) {
 	fs.writeFileSync(
 		mainFile,
 		`import express from 'express';
-// TODO: plug in dynamic AI/canonical content
+// TODO: plug in dynamic AI-driven content
 const app = express();
 const port = process.env.PORT ?? 3333;
 app.use(express.json());
@@ -141,7 +137,7 @@ app.listen(port, () => console.log('Business API listening on http://localhost:'
 `
 	);
 
-	// 8) Update tsconfig.app.json
+	// 8) Update tsconfig.app.json for NodeNext
 	const tsPath = path.join(apiRoot, 'tsconfig.app.json');
 	if (fs.existsSync(tsPath)) {
 		const config = JSON.parse(fs.readFileSync(tsPath, 'utf-8'));
@@ -152,7 +148,7 @@ app.listen(port, () => console.log('Business API listening on http://localhost:'
 		fs.writeFileSync(tsPath, JSON.stringify(config, null, 2));
 	}
 
-	// 9) Write Dockerfile
+	// 9) Write Dockerfile for API
 	fs.writeFileSync(
 		path.join(apiRoot, 'Dockerfile'),
 		`FROM node:18-alpine
