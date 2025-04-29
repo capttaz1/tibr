@@ -64,6 +64,12 @@ export async function handler({ name, preset, pm }: InitOptions) {
 	);
 	process.chdir(workspaceDir);
 
+	// Clean up any root-level ui-components leftover from prior runs
+	const rootLib = path.join(workspaceDir, 'ui-components');
+	if (fs.existsSync(rootLib)) {
+		fs.rmSync(rootLib, { recursive: true, force: true });
+	}
+
 	// 3) Install Nx plugins
 	console.log('Installing Nx plugins…');
 	const nxInstallArgs =
@@ -72,8 +78,8 @@ export async function handler({ name, preset, pm }: InitOptions) {
 			: ['add', '-D', '@nx/react', '@nx/storybook', '@nx/express'];
 	await execa(pm, nxInstallArgs, { stdio: 'inherit' });
 
-	// 4) Generate UI component library
-	console.log('Generating ui-components library…');
+	// 4) Generate UI component library under libs folder
+	console.log('Generating ui-components library under libs/...');
 	await execa(
 		'npx',
 		[
@@ -81,6 +87,7 @@ export async function handler({ name, preset, pm }: InitOptions) {
 			'g',
 			'@nx/react:library',
 			'ui-components',
+			'--directory=libs',
 			'--style=css',
 			'--publishable',
 			'--bundler=rollup',
