@@ -88,22 +88,47 @@ export async function handler(args: InitOptions) {
 		{ stdio: 'inherit' }
 	);
 
-	// 5) Configure Storybook via Nx generator
-	console.log('Configuring Storybook for ui-components...');
-	await execa(
-		'npx',
-		[
-			'nx',
-			'g',
-			'@nx/storybook:configuration',
-			'ui-components',
-			'--generateStories=true',
-			'--uiFramework=@storybook/react',
-			'--no-interactive',
-		],
-		{ stdio: 'inherit' }
+	// 5) Manually configure Storybook for ui-components
+	const sbRoot = path.join(workspaceDir, 'ui-components', '.storybook');
+	fs.mkdirSync(sbRoot, { recursive: true });
+	fs.writeFileSync(
+		path.join(sbRoot, 'main.js'),
+		`module.exports = {
+  stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
+  addons: ['@storybook/addon-essentials'],
+  framework: '@storybook/react',
+};`
 	);
-
+	fs.writeFileSync(
+		path.join(sbRoot, 'preview.js'),
+		`export const parameters = {
+  actions: { argTypesRegex: '^on[A-Z].*' },
+  controls: { expanded: true },
+};`
+	);
+	// Update ui-components project.json to add Storybook targets
+	const projJsonPath = path.join(workspaceDir, 'ui-components', 'project.json');
+	if (fs.existsSync(projJsonPath)) {
+		const projJson = JSON.parse(fs.readFileSync(projJsonPath, 'utf-8'));
+		projJson.targets = projJson.targets || {};
+		projJson.targets.storybook = {
+			executor: '@nx/storybook:storybook',
+			options: {
+				uiFramework: '@storybook/react',
+				config: { configFolder: 'ui-components/.storybook' },
+				outputDir: 'dist/storybook/ui-components',
+			},
+		};
+		projJson.targets['build-storybook'] = {
+			executor: '@nx/storybook:build',
+			options: {
+				uiFramework: '@storybook/react',
+				config: { configFolder: 'ui-components/.storybook' },
+				outputDir: 'dist/storybook/ui-components',
+			},
+		};
+		fs.writeFileSync(projJsonPath, JSON.stringify(projJson, null, 2));
+	}
 	// 6) Generate Express API
 	console.log('Generating business-api application...');
 	const apiProj = 'business-api';
