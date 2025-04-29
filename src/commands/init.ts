@@ -16,14 +16,14 @@ export const builder = (yargs: Argv) =>
 		})
 		.option('preset', {
 			alias: 'p',
-			describe: 'Preset to use (e.g., apps, react-monorepo, ts)',
+			describe: 'Preset to use (apps, react-monorepo, ts)',
 			type: 'string',
 			choices: ['apps', 'react-monorepo', 'ts'] as const,
 			default: 'apps',
 		})
 		.option('pm', {
 			alias: 'm',
-			describe: 'Package manager to use',
+			describe: 'Package manager to use (npm, yarn, pnpm)',
 			type: 'string',
 			choices: ['npm', 'yarn', 'pnpm'] as const,
 			default: 'npm',
@@ -39,34 +39,39 @@ export async function handler(args: InitOptions) {
 	const { name, preset, pm } = args;
 	const workspaceDir = path.resolve(process.cwd(), name);
 
-	// 1) Clean up existing workspace
+	// 1) Remove existing directory if requested
 	if (fs.existsSync(workspaceDir)) {
 		const { confirm } = await inquirer.prompt([
-			{ type: 'confirm', name: 'confirm', message: `Directory "${name}" exists. Delete?`, default: false },
+			{
+				type: 'confirm',
+				name: 'confirm',
+				message: `Directory "${name}" exists. Delete?`,
+				default: false,
+			},
 		]);
 		if (!confirm) {
 			console.log('Aborting.');
 			process.exit(1);
 		}
-		console.log('Removing existing workspace…');
 		fs.rmSync(workspaceDir, { recursive: true, force: true });
 	}
 
 	// 2) Bootstrap Nx workspace
-	console.log(`Bootstrapping "${name}" with preset="${preset}", pm="${pm}"…`);
+	console.log(`Bootstrapping workspace "${name}" with preset=${preset}, pm=${pm}…`);
 	await execa(
 		'npx',
 		['create-nx-workspace@latest', name, `--preset=${preset}`, `--packageManager=${pm}`, '--interactive=false'],
 		{ stdio: 'inherit' }
 	);
+
 	process.chdir(workspaceDir);
 
-	// 3) Install Nx plugins
-	console.log('Installing Nx plugins…');
+	// 3) Install plugins
+	console.log('Installing Nx plugins...');
 	await execa('npm', ['install', '--save-dev', '@nx/react', '@nx/storybook', '@nx/express'], { stdio: 'inherit' });
 
-	// 4) Generate UI component library
-	console.log('Generating "ui-components" library…');
+	// 4) Generate UI library
+	console.log('Generating ui-components library...');
 	await execa(
 		'npx',
 		[
@@ -84,28 +89,28 @@ export async function handler(args: InitOptions) {
 	);
 
 	// 5) Configure Storybook
-	console.log('Configuring Storybook for "ui-components"…');
-	const sbDir = path.join(workspaceDir, 'ui-components', '.storybook');
-	fs.mkdirSync(sbDir, { recursive: true });
+	console.log('Configuring Storybook for ui-components...');
+	const sbRoot = path.join(workspaceDir, 'ui-components', '.storybook');
+	fs.mkdirSync(sbRoot, { recursive: true });
 	fs.writeFileSync(
-		path.join(sbDir, 'main.js'),
+		path.join(sbRoot, 'main.js'),
 		`module.exports = {
-      stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
-      addons: ['@storybook/addon-essentials'],
-      framework: '@storybook/react',
-    };`
+  stories: ['../src/lib/**/*.stories.@(js|jsx|ts|tsx)'],
+  addons: ['@storybook/addon-essentials'],
+  framework: '@storybook/react',
+};`
 	);
 	fs.writeFileSync(
-		path.join(sbDir, 'preview.js'),
+		path.join(sbRoot, 'preview.js'),
 		`export const parameters = {
-      actions: { argTypesRegex: '^on[A-Z].*' },
-      controls: { expanded: true },
-    };`
+  actions: { argTypesRegex: '^on[A-Z].*' },
+  controls: { expanded: true },
+};`
 	);
 
-	// 6) Scaffold Express API under apps/api/business-api
-	console.log('Generating Express "business-api" application…');
-	const apiProject = 'business-api';
+	// 6) Generate Express API
+	console.log('Generating business-api application...');
+	const apiProj = 'business-api';
 	const apiDir = 'apps/api/business-api';
 	await execa(
 		'npx',
@@ -113,7 +118,7 @@ export async function handler(args: InitOptions) {
 			'nx',
 			'g',
 			'@nx/express:application',
-			apiProject,
+			apiProj,
 			`--directory=${apiDir}`,
 			'--e2eTestRunner=none',
 			'--no-interactive',
@@ -121,36 +126,35 @@ export async function handler(args: InitOptions) {
 		{ stdio: 'inherit' }
 	);
 
-	// 7) Write placeholder main.ts in API project
-	const projectRoot = path.join(workspaceDir, apiDir);
-	const mainTsPath = path.join(projectRoot, 'src', 'main.ts');
-	fs.mkdirSync(path.dirname(mainTsPath), { recursive: true });
+	// 7) Write placeholder main.ts
+	const apiRoot = path.join(workspaceDir, apiDir);
+	const mainFile = path.join(apiRoot, 'src', 'main.ts');
+	fs.mkdirSync(path.dirname(mainFile), { recursive: true });
 	fs.writeFileSync(
-		mainTsPath,
+		mainFile,
 		`import express from 'express';
-    // TODO: integrate dynamic AI-driven content per client
-    const app = express();
-    const port = process.env.PORT ?? 3333;
-    app.use(express.json());
-    app.listen(port, () => console.log('Business API listening on http://localhost:' + port));
-;`
+// TODO: plug in dynamic AI/canonical content
+const app = express();
+const port = process.env.PORT ?? 3333;
+app.use(express.json());
+app.listen(port, () => console.log('Business API listening on http://localhost:' + port));
+`
 	);
 
-	// 8) Adjust tsconfig.app.json
-	const tsConfigPath = path.join(projectRoot, 'tsconfig.app.json');
-	if (fs.existsSync(tsConfigPath)) {
-		const cfg = JSON.parse(fs.readFileSync(tsConfigPath, 'utf-8'));
-		if (cfg.compilerOptions) {
-			delete cfg.compilerOptions.bundler;
-			const mr = cfg.compilerOptions.moduleResolution;
-			cfg.compilerOptions.module = mr === 'NodeNext' ? 'NodeNext' : 'ES2020';
-		}
-		fs.writeFileSync(tsConfigPath, JSON.stringify(cfg, null, 2));
+	// 8) Update tsconfig.app.json
+	const tsPath = path.join(apiRoot, 'tsconfig.app.json');
+	if (fs.existsSync(tsPath)) {
+		const config = JSON.parse(fs.readFileSync(tsPath, 'utf-8'));
+		config.compilerOptions = config.compilerOptions || {};
+		config.compilerOptions.moduleResolution = 'NodeNext';
+		config.compilerOptions.module = 'NodeNext';
+		delete config.compilerOptions.bundler;
+		fs.writeFileSync(tsPath, JSON.stringify(config, null, 2));
 	}
 
-	// 9) Write Dockerfile for API
+	// 9) Write Dockerfile
 	fs.writeFileSync(
-		path.join(projectRoot, 'Dockerfile'),
+		path.join(apiRoot, 'Dockerfile'),
 		`FROM node:18-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -158,10 +162,11 @@ RUN npm ci --omit=dev
 COPY . .
 RUN npm run build
 EXPOSE 3333
-CMD [\"node\",\"dist/main.js\"]`
+CMD ["node","dist/main.js"]
+`
 	);
 
-	// 10) Emit top-level docker-compose.yaml
+	// 10) docker-compose.yaml
 	fs.writeFileSync(
 		path.join(workspaceDir, 'docker-compose.yaml'),
 		`version: '3.8'
