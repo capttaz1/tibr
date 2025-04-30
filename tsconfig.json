@@ -8,6 +8,7 @@
 		"strict": true,
 		"esModuleInterop": true,
 		"typeRoots": ["node_modules/@types"],
+		"moduleResolution": "node",
 		"types": ["node"],
 		"skipLibCheck": true
 	},

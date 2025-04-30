@@ -2,6 +2,7 @@
 	"name": "tibr-cli",
 	"version": "1.0.0",
 	"main": "dist/index.js",
+	"type": "commonjs",
 	"scripts": {
 		"build": "tsc && chmod +x dist/index.js",
 		"start": "ts-node scr/index.ts"
@@ -17,23 +18,28 @@
 		"@types/fs-extra": "^11.0.4",
 		"chalk": "^5.4.1",
 		"commander": "^13.1.0",
+		"cosmiconfig": "^9.0.0",
+		"csv-parse": "^5.6.0",
 		"execa": "^9.5.2",
+		"openai": "^4.96.2",
 		"prompts": "^2.4.2",
+		"react-hook-form": "^7.56.1",
+		"react-router-dom": "^7.5.3",
 		"yargs": "^17.7.2"
 	},
 	"devDependencies": {
-		"@types/node": "^22.15.2",
-		"@types/prompts": "^2.4.9",
-		"@types/yargs": "^17.0.33",
-		"fs-extra": "^11.3.0",
-		"inquirer": "^12.6.0",
-		"ts-node": "^10.9.2",
-		"typescript": "^5.8.3",
 		"@nx/express": "20.8.1",
 		"@nx/react": "20.8.1",
 		"@nx/storybook": "20.8.1",
-		"execa": "^7.0.0",
 		"@types/fs-extra": "^11.0.0",
-		"@types/inquirer": "^9.0.0"
+		"@types/inquirer": "^9.0.0",
+		"@types/node": "^22.15.2",
+		"@types/prompts": "^2.4.9",
+		"@types/yargs": "^17.0.33",
+		"execa": "^7.0.0",
+		"fs-extra": "^11.3.0",
+		"inquirer": "^12.6.0",
+		"ts-node": "^10.9.2",
+		"typescript": "^5.8.3"
 	}
 }

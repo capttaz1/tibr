@@ -198,7 +198,7 @@ export async function handler({ name, preset, pm }: InitOptions) {
 	  postgrest:
 	    image: postgrest/postgrest
 	    environment:
-	      PGRST_DB_URI: postgres://tibr:changeme@postgres:5432/tibr
+	      PGRST_DB_URI: postgres://tibr:password@postgres:5432/tib
 	      PGRST_DB_SCHEMA: public
 	      PGRST_DB_ANON_ROLE: anon
 	    ports:
@@ -211,13 +211,13 @@ export async function handler({ name, preset, pm }: InitOptions) {
 	      dockerfile: apps/api/business-api/Dockerfile
 	    environment:
 	      PORT: 3333
-	      POSTGREST_URL: http://postgrest:3000
+	      POSTGREST_URL: http://localhost:3000
 	    ports:
 	      - '3333:3333'
 	    depends_on:
 	      - postgrest
 	volumes:
-	  postgres-data:
+	  - postgres-data:
 	`
 	);
 
